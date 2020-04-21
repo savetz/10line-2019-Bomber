@@ -1,0 +1,115 @@
+A=PEEK(106)-4:POKE 106,A:PM=A*256
+'Where player missile data goes
+DIM F$(24),B(9),VOL(9)
+'F$=character set data. B=bomb position (0 if inactive)
+'VOL=volume of sound channels. (Only 0-3 are used.)
+GRAPHICS 17:'I love this graphics mode
+LV=10:'level starts at 10, goes down to 2. It's weird but player doesn't see that info.
+SB=2:'"audio channel available for boom sound starts at 2
+SC=DPEEK(88):'top of screen RAM
+CH=(PEEK(106)-16)*256:'find RAM for character set 
+POKE 712,$D6:'background color
+POKE 708,0:'bomber color
+
+F$="\02\08\10\38\74\7C\7C\38\38\7C\D6\D6\7C\6C\38\54\FE\82\FE\82\FE\C6\44\44"
+'character set
+'1 = \02\08\10\38\74\7C\7C\38 = bomb
+'2 = \38\7C\D6\D6\7C\6C\38\54 = top of bomber
+'3 = \FE\82\FE\82\FE\C6\44\44 = bottom of bomber
+
+MOVE 57344,CH,1024:'Copy character set to RAM
+MOVE ADR(F$),CH+8,24:'install custom characters
+POKE 756,CH/256:'switch to RAM chatacter set
+
+POKE 53256,3:POKE 54279,A:POKE 559,46:POKE 53277,3:POKE 53248,130:POKE 704,10:POKE 53278,0
+'Set up Player/Missile graphics
+FOR I=0 TO 512:DPOKE PM+I*2,0:NEXT I:POKE PM+618,$3F
+'Empty the P/M area that we need. Draw the line that player controls.
+
+'MAIN LOOP
+WHILE M<5:'go until player misses 5 bombs
+	BD=RAND(20):'bomber destination
+	
+	'MOVE PLAYER PADDLE
+	WHILE BD<>BX
+		P=180-PADDLE(0)
+		IFP<37:P=37:ENDIF
+		POKE 53248,P:'HPOSP0
+		
+		'CAUGHT BOMB?
+		IF PEEK(53252):'P0PF collision?
+			FOR X=0 TO 9:'test every bomb
+				IF B(X)>419:'if it's on bottom level of screen
+					POKE SC+B(X),0:'erase it
+					B(X)=0:'mark it inactive
+					S=S+1:'increase score
+					G=G+1:'"got" counter for stats
+				ENDIF
+			NEXT X
+			POKE 53278,0:'clear P/M collision 
+			SG=SG+1:SG=SG*(SG<2):VOL(SG)=6:'happy beep
+			POSITION 1,0
+			?#6;S;"  ":'update score
+		ENDIF 
+		
+		'DROP A NEW ONE
+		IF(RAND(LV)=0):'As level decreases, bombs drop more frequently 
+			POKE SC+80+BX,65:'draw bomb at top of screen
+			B(C)=80+BX:'mark it as active
+			C=C+1:'iterate 0-9, which bomb gets dropped next
+			C=C*(C<10)
+		ENDIF 
+
+		'REM MOVE EXISTING BOMBS
+		FOR X=0 TO 9
+			IF VOL(X):'make/update boom and beep noises for sound channels 0-3
+				VOL(X)=VOL(X)-2:'if channel has volume, make it quieter
+				SOUND X,60,10-(X>1)*2,VOL(X):'update sound channel
+						  '^ channels 0-1 are pure tone beep, 2-3 are noisy boom.
+			ENDIF
+
+			IF B(X):'if bomb is active
+				POKE SC+B(X),0:'erase old bomb position
+				B(X)=B(X)+40:'move it down one row
+				IF (B(X)>479):'if it's at the bottom
+					B(X)=0:'mark it inactive
+					S=S-(11-LV):'lose points for missing it
+					M=M+1:'missed counter
+					SB=SB+1:IF(SB=4):SB=2:ENDIF:'get channel for boom sound
+					VOL(SB)=14:'queue up boom
+					POSITION 1,0:?#6;S;"  ":'update score
+				ELSE 
+					POKE SC+B(X),65:'not at the bottom, redraw in new position
+				ENDIF 
+			ENDIF 
+		NEXT X
+
+		'MOVE BOMBER
+		Z=SC+40+BX:'bomber screen position
+		POKE Z,0:'erase bomber top
+		POKE Z+20,0:'and bottom
+		BX=BX+(BX<BD):'move toward destination
+		BX=BX-(BX>BD):'or in the other direction
+		POKE SC+40+BX,2:'draw bomber top
+		POKE SC+60+BX,3:'and bottom
+	WEND:'WHILE BD<>BX - bomber has reached his destination...
+	
+	T=T+1:'increase number of trips tally
+	IF (T=35):'if he's made enough trips
+		LV=LV-(LV>2):''Reduce level number, minimum is 2.
+		T=PEEK(712)-$10:'new level, new background color
+		T=T+(T<6)*$D6:'don't let bg color get negative
+		POKE 712,T:'change background color
+		T=0:'Reset trip counter
+		POKE 77,0:'inhibit attract mode
+	ENDIF
+WEND :'WHILE M>5
+
+'GAME OVER
+SOUND:'quiet
+POS. 0,0
+POKE 712,10:'black background
+?#6;"GAME OVER"
+?#6;"SCORE: ";S
+?#6;"ACCURACY: ";TRUNC((G/(G+M))*100);"%"
+WHILE PTRIG(0):WEND:RUN
